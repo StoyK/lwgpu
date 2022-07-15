@@ -1,13 +1,30 @@
+use crate::vertex::Vertex;
 use wgpu::{
-    Backends, BlendState, Color, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Device,
-    DeviceDescriptor, Face, Features, FragmentState, FrontFace, Instance, Limits, LoadOp,
-    MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode, PowerPreference,
-    PresentMode, PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment,
-    RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions,
-    ShaderModuleDescriptor, ShaderSource, Surface, SurfaceConfiguration, SurfaceError,
-    TextureUsages, TextureViewDescriptor, VertexState,
+    util::{BufferInitDescriptor, DeviceExt},
+    Backends, BlendState, Buffer, BufferUsages, Color, ColorTargetState, ColorWrites,
+    CommandEncoderDescriptor, Device, DeviceDescriptor, Face, Features, FragmentState, FrontFace,
+    Instance, Limits, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode,
+    PowerPreference, PresentMode, PrimitiveState, PrimitiveTopology, Queue,
+    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
+    RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource, Surface, SurfaceConfiguration,
+    SurfaceError, TextureUsages, TextureViewDescriptor, VertexState,
 };
 use winit::{dpi::PhysicalSize, event::WindowEvent, window::Window};
+
+const VERTICES: &[Vertex] = &[
+    Vertex {
+        position: [0.0, 0.5, 0.0],
+        color: [1.0, 0.0, 0.0],
+    },
+    Vertex {
+        position: [-0.5, -0.5, 0.0],
+        color: [0.0, 1.0, 0.0],
+    },
+    Vertex {
+        position: [0.5, -0.5, 0.0],
+        color: [0.0, 0.0, 1.0],
+    },
+];
 
 pub struct State {
     surface: Surface,
@@ -16,6 +33,8 @@ pub struct State {
     config: SurfaceConfiguration,
     pub size: PhysicalSize<u32>,
     render_pipeline: RenderPipeline,
+    vertex_buffer: Buffer,
+    num_vertices: u32,
 }
 
 impl State {
@@ -121,10 +140,8 @@ impl State {
                 // Define the name(entry_point) of the function for the vertex shader
                 // in the file
                 entry_point: "vs_main",
-                // Give the [VertexBufferLayout](buffers of vertices) we use if there are any
-                // In our case we have defined them in "shader.wgsl" so there is no reason to
-                // add any here
-                buffers: &[],
+                // Give the [VertexBufferLayout] we use if there is any
+                buffers: &[Vertex::desc()],
             },
             // Define a [FragmentState] or a description of our fragment shader
             // It's technically optional, so we wrap it in Some()
@@ -190,6 +207,14 @@ impl State {
             multiview: None,
         });
 
+        let vertex_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Vertex Buffer"),
+            contents: bytemuck::cast_slice(VERTICES),
+            usage: BufferUsages::VERTEX,
+        });
+
+        let num_vertices = VERTICES.len() as u32;
+
         Self {
             surface,
             device,
@@ -197,6 +222,8 @@ impl State {
             config,
             size,
             render_pipeline,
+            vertex_buffer,
+            num_vertices,
         }
     }
 
@@ -254,7 +281,8 @@ impl State {
         });
 
         render_pass.set_pipeline(&self.render_pipeline);
-        render_pass.draw(0..3, 0..1);
+        render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
+        render_pass.draw(0..self.num_vertices, 0..1);
         // The reason we drop the render_pass is because the command
         // encoder.begin_render_pass() borrows the encoder as &mut which
         // means that we can't call encoder.finish() until that borrow is given

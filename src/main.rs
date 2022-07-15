@@ -1,4 +1,5 @@
-mod state;
+pub mod state;
+pub mod vertex;
 
 use state::State;
 use wgpu::SurfaceError;
