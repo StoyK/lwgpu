@@ -1,42 +1,44 @@
+use std::num::NonZeroU32;
+
 use crate::vertex::Vertex;
+use image::GenericImageView;
 use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
-    Backends, BlendState, Buffer, BufferUsages, Color, ColorTargetState, ColorWrites,
-    CommandEncoderDescriptor, Device, DeviceDescriptor, Face, Features, FragmentState, FrontFace,
-    IndexFormat, Instance, Limits, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor,
-    PolygonMode, PowerPreference, PresentMode, PrimitiveState, PrimitiveTopology, Queue,
-    RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
-    RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource, Surface, SurfaceConfiguration,
-    SurfaceError, TextureUsages, TextureViewDescriptor, VertexState,
+    AddressMode, Backends, BindGroup, BindGroupDescriptor, BindGroupEntry,
+    BindGroupLayoutDescriptor, BindGroupLayoutEntry, BindingResource, BindingType, BlendState,
+    Buffer, BufferUsages, Color, ColorTargetState, ColorWrites, CommandEncoderDescriptor, Device,
+    DeviceDescriptor, Extent3d, Face, Features, FilterMode, FragmentState, FrontFace,
+    ImageCopyTexture, ImageDataLayout, IndexFormat, Instance, Limits, LoadOp, MultisampleState,
+    Operations, Origin3d, PipelineLayoutDescriptor, PolygonMode, PowerPreference, PresentMode,
+    PrimitiveState, PrimitiveTopology, Queue, RenderPassColorAttachment, RenderPassDescriptor,
+    RenderPipeline, RenderPipelineDescriptor, RequestAdapterOptions, SamplerBindingType,
+    SamplerDescriptor, ShaderModuleDescriptor, ShaderSource, ShaderStages, Surface,
+    SurfaceConfiguration, SurfaceError, TextureAspect, TextureDescriptor, TextureDimension,
+    TextureFormat, TextureSampleType, TextureUsages, TextureViewDescriptor, TextureViewDimension,
+    VertexState,
 };
 use winit::{dpi::PhysicalSize, event::WindowEvent, window::Window};
-
 const VERTICES: &[Vertex] = &[
-    // Point A
     Vertex {
-        position: [0.0, 0.75, 0.0],
-        color: [1.0, 1.0, 1.0],
-    },
-    // Point B
+        position: [-0.0868241, 0.49240386, 0.0],
+        tex_coords: [0.4131759, 0.00759614],
+    }, // A
     Vertex {
-        position: [-0.5, 0.25, 0.0],
-        color: [1.0, 1.0, 1.0],
-    },
-    // Point C
+        position: [-0.49513406, 0.06958647, 0.0],
+        tex_coords: [0.0048659444, 0.43041354],
+    }, // B
     Vertex {
-        position: [-0.25, -0.5, 0.0],
-        color: [1.0, 1.0, 1.0],
-    },
-    // Point D
+        position: [-0.21918549, -0.44939706, 0.0],
+        tex_coords: [0.28081453, 0.949397],
+    }, // C
     Vertex {
-        position: [0.25, -0.5, 0.0],
-        color: [1.0, 1.0, 1.0],
-    },
-    // Point E
+        position: [0.35966998, -0.3473291, 0.0],
+        tex_coords: [0.85967, 0.84732914],
+    }, // D
     Vertex {
-        position: [0.5, 0.25, 0.0],
-        color: [1.0, 1.0, 1.0],
-    },
+        position: [0.44147372, 0.2347359, 0.0],
+        tex_coords: [0.9414737, 0.2652641],
+    }, // E
 ];
 
 // Indices(coming from the word index, like in an array) is basically an
@@ -56,6 +58,7 @@ pub struct State {
     vertex_buffer: Buffer,
     index_buffer: Buffer,
     num_indices: u32,
+    diffuse_bind_group: BindGroup,
 }
 
 impl State {
@@ -86,8 +89,7 @@ impl State {
             .request_device(
                 // A description of the device(GPU) we want from the computer
                 &DeviceDescriptor {
-                    // Not the acutal name of the GPU, the label is if we want to
-                    // have some kind of name for debugging purposes
+                    // Label for debugging purposes
                     label: None,
                     // If we want to use some specific feature of a GPU, we need to mention it here
                     features: Features::empty(),
@@ -122,6 +124,175 @@ impl State {
         };
         surface.configure(&device, &config);
 
+        // Let's create a texture!
+        // We take the bytes from an image file and load them into a [DynamicImage]
+        // which is then converted into a Vec of rgba bytes. We also save the image's
+        // dimensions for when we create the actual Texture.
+        let diffuse_bytes = include_bytes!("happy-tree.png");
+        let diffuse_image =
+            image::load_from_memory(diffuse_bytes).expect("Couldn't load image from memory");
+        let diffuse_rgba = diffuse_image.to_rgba8();
+        let dimensions = diffuse_image.dimensions();
+
+        // In graphics, all textures are stored as 3D. To represent
+        // ours as 2D we set the field depth_or_array_layers to 1
+        let texture_size = Extent3d {
+            width: dimensions.0,
+            height: dimensions.1,
+            depth_or_array_layers: 1,
+        };
+
+        // A diffuse texture is the most common kind of texture. It defines the color and pattern
+        // of an object. Mapping the diffuse color is like painting an image on the surface of the
+        // object. For example, if you want a wall to be made out of brick, you can choose an image
+        // file with a photograph of bricks and put it on the object.
+        let diffuse_texture = device.create_texture(&TextureDescriptor {
+            // Label for debugging purposes
+            label: Some("Diffuse Texture"),
+            // The size of our texture
+            size: texture_size,
+            // See: https://en.wikipedia.org/wiki/Mipmap
+            mip_level_count: 1,
+            // See: https://www.khronos.org/opengl/wiki/Multisampling
+            sample_count: 1,
+            // What dimensions is our texture in
+            dimension: TextureDimension::D2,
+            // Most images use an sRGBA format of u8 so we use that
+            format: TextureFormat::Rgba8UnormSrgb,
+            // TextureUsages::TEXTURE_BINDING tells WGPU we want to use the
+            // texture in shaders. TextureUsages::COPY_DST tells WGPU we want
+            // to be able to copy data from this texture in the future
+            usage: TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST,
+        });
+
+        // The [Texture] struct has no actual methods to interact with the data
+        // that it stores. However, we can use the queue we created earlier to
+        // load the texture in
+        queue.write_texture(
+            ImageCopyTexture {
+                texture: &diffuse_texture,
+                mip_level: 0,
+                origin: Origin3d::ZERO,
+                aspect: TextureAspect::All,
+            },
+            &diffuse_rgba,
+            ImageDataLayout {
+                offset: 0,
+                bytes_per_row: NonZeroU32::new(4 * dimensions.0),
+                rows_per_image: NonZeroU32::new(dimensions.1),
+            },
+            texture_size,
+        );
+
+        // Now that we have data in our [Texture], we have to actually use it
+        // The way we do that is using a [TextureView] and a [Sampler]
+
+        // A [TextureView] contains a handle(view) to our texture and the
+        // needed metadata for a [RenderPipeline] or a [BindGroup]
+        let diffuse_texture_view = diffuse_texture.create_view(&TextureViewDescriptor::default());
+        // A [Sampler] works the same way as the color picker tool in programs
+        // like Photoshop/GIMP. The sampler goes through the texture and tells
+        // us what each color is
+        let diffuse_sampler = device.create_sampler(&SamplerDescriptor {
+            // The address_mode_* parameters determine what to do if
+            // the sampler gets a texture coordinate that's outside
+            // the texture itself
+            // AddressMode::ClampToEdge will make any coordinates outside
+            // the texture use the color of the nearest pixel before
+            // going out of bounds
+            // AddressMode::Repeat will repeat the same texture as the
+            // texture coordinates go out of bounds
+            // AddressMode::MirroredRepeat is AddressMode::Repeat, but
+            // the image gets mirrored upside down
+            address_mode_u: AddressMode::ClampToEdge,
+            address_mode_v: AddressMode::ClampToEdge,
+            address_mode_w: AddressMode::ClampToEdge,
+            // The mag_filter and min_filter options describe what to
+            // do when a fragment covers multiple pixels, or there are
+            // multiple fragments for a single pixel. This often comes
+            // into play when viewing a surface from up close or far away
+            // FilterMode::Linear attempts to blend in fragments
+            // FilterMode::Nearest makes in-between fragments choose the
+            // color of the closest pixel
+            mag_filter: FilterMode::Linear,
+            min_filter: FilterMode::Nearest,
+            mipmap_filter: FilterMode::Nearest,
+            ..Default::default()
+        });
+
+        // The [TextureView] and [Sampler] are cool as resources, but if
+        // we can't use them anywhere they don't matter. That's where
+        // [BindGroupLayout] and [PipelineLayout] enter
+        let texture_bind_group_layout =
+            device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                // Label for debugging purposes
+                label: Some("Texture Bind Group Layout"),
+                // The actual resources our [BindGroup] will hold
+                entries: &[
+                    // The first entry is for our [TextureView]
+                    BindGroupLayoutEntry {
+                        // This binding is correspondant to @location(0)
+                        // in our fragment shader
+                        binding: 0,
+                        // This tells WGPU that the [TextureView] and [Sampler]
+                        // will only be available in the fragment shader
+                        visibility: ShaderStages::FRAGMENT,
+                        // This is the type of the binding
+                        ty: BindingType::Texture {
+                            // See: https://www.khronos.org/opengl/wiki/Multisampling
+                            multisampled: false,
+                            // The dimensions of our texture view
+                            view_dimension: TextureViewDimension::D2,
+                            // The type of numbers we are using to hold information
+                            // about the texture
+                            sample_type: TextureSampleType::Float {
+                                // If this field is set to false we can't sample our texture
+                                // using a [Sampler]
+                                filterable: true, // <--- this
+                            },
+                        },
+                        // If this value is Some() it indicates that this is
+                        // an array of textures. It isn't so we're keeping it
+                        // as None
+                        count: None,
+                    },
+                    // The second entry is for our [Sampler]
+                    BindGroupLayoutEntry {
+                        // This binding is correspondant to @location(1)
+                        // in our fragment shader
+                        binding: 1,
+                        // Again, these bindings will only be available in
+                        // our fragment shader
+                        visibility: ShaderStages::FRAGMENT,
+                        // The type of binding we are holding
+                        ty: BindingType::Sampler(SamplerBindingType::Filtering), // <--- and this should match
+                        // Same thing as the above entry
+                        count: None,
+                    },
+                ],
+            });
+
+        // With our [BindGroupLayout] done, we can actually create the [BindGroup]
+        let diffuse_bind_group = device.create_bind_group(&BindGroupDescriptor {
+            // Label for debugging purposes
+            label: Some("Bind Group"),
+            // The [BindGroupLayout] we created for the [BindGroup]
+            layout: &texture_bind_group_layout,
+            // The actual data the [BindGroup] will hold
+            entries: &[
+                // This is out [TextureView] at @location(0)
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::TextureView(&diffuse_texture_view),
+                },
+                // This is our [Sampler] at @location(1)
+                BindGroupEntry {
+                    binding: 1,
+                    resource: BindingResource::Sampler(&diffuse_sampler),
+                },
+            ],
+        });
+
         // A [ShaderModule] represents a compiled shader program
         // that we include through the file "shader.wgsl"
         // NOTE: All of this can be replaced with a macro like so:
@@ -137,13 +308,12 @@ impl State {
 
         // A [PipelineLayout] represents the mapping and placing in memory between all [BindGroup]s
         // [BindGroup]s are groups of resources bound together in a group (unexpected, right?)
-        // these resources can be textures, samplers(encoders for transformations) and bindings
-        // to buffers
+        // that can be used by shaders. These resources can be textures, samplers and bindings to buffers
         let render_pipeline_layout = device.create_pipeline_layout(&PipelineLayoutDescriptor {
             // Label for debugging purposes
             label: Some("Render Pipeline Layout"),
             // [BindGroup]s that the pipeline uses
-            bind_group_layouts: &[],
+            bind_group_layouts: &[&texture_bind_group_layout],
             // [PushConstantRange] is a set of push constants, which are small amounts of data
             // we can send directly to a [ShaderModule] and any of its stages(Vertex, Fragment...)
             push_constant_ranges: &[],
@@ -251,6 +421,7 @@ impl State {
             vertex_buffer,
             index_buffer,
             num_indices,
+            diffuse_bind_group,
         }
     }
 
@@ -308,6 +479,7 @@ impl State {
         });
 
         render_pass.set_pipeline(&self.render_pipeline);
+        render_pass.set_bind_group(0, &self.diffuse_bind_group, &[]);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
         render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
         render_pass.draw_indexed(0..self.num_indices, 0, 0..1);

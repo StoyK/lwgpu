@@ -8,7 +8,7 @@ use wgpu::{BufferAddress, VertexAttribute, VertexBufferLayout, VertexFormat, Ver
 /// attributes
 pub struct Vertex {
     pub position: [f32; 3],
-    pub color: [f32; 3],
+    pub tex_coords: [f32; 2],
 }
 
 impl Vertex {
@@ -34,8 +34,7 @@ impl Vertex {
                     offset: 0,
                     // This tells the shader what location to store this attribute at.
                     // For example @location(0) x: vec3<f32> in the vertex shader would
-                    // correspond to the position field of the [Vertex] struct, while
-                    // @location(1) x: vec3<f32> would be the color field.
+                    // correspond to the position field of the [Vertex] struct
                     shader_location: 0,
                     // The format field tells the shader the shape of the attribute
                     // Float32x3 corresponds to vec3<f32> in shader code. The max value
@@ -47,9 +46,9 @@ impl Vertex {
                     // where [f32; 3] directly corresponds to the position field
                     offset: std::mem::size_of::<[f32; 3]>() as BufferAddress,
                     // Again, in the shader code @location(0) x: vec3<f32> would be the position field
-                    // So @location(1) y: vec3<f32> would be the color field.
+                    // So @location(1) y: vec2<f32> would be the texture coordinates field.
                     shader_location: 1,
-                    format: VertexFormat::Float32x3,
+                    format: VertexFormat::Float32x2,
                 },
             ],
         }
