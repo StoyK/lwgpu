@@ -3,8 +3,8 @@ use wgpu::{
     util::{BufferInitDescriptor, DeviceExt},
     Backends, BlendState, Buffer, BufferUsages, Color, ColorTargetState, ColorWrites,
     CommandEncoderDescriptor, Device, DeviceDescriptor, Face, Features, FragmentState, FrontFace,
-    Instance, Limits, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor, PolygonMode,
-    PowerPreference, PresentMode, PrimitiveState, PrimitiveTopology, Queue,
+    IndexFormat, Instance, Limits, LoadOp, MultisampleState, Operations, PipelineLayoutDescriptor,
+    PolygonMode, PowerPreference, PresentMode, PrimitiveState, PrimitiveTopology, Queue,
     RenderPassColorAttachment, RenderPassDescriptor, RenderPipeline, RenderPipelineDescriptor,
     RequestAdapterOptions, ShaderModuleDescriptor, ShaderSource, Surface, SurfaceConfiguration,
     SurfaceError, TextureUsages, TextureViewDescriptor, VertexState,
@@ -12,19 +12,39 @@ use wgpu::{
 use winit::{dpi::PhysicalSize, event::WindowEvent, window::Window};
 
 const VERTICES: &[Vertex] = &[
+    // Point A
     Vertex {
-        position: [0.0, 0.5, 0.0],
-        color: [1.0, 0.0, 0.0],
+        position: [0.0, 0.75, 0.0],
+        color: [1.0, 1.0, 1.0],
     },
+    // Point B
     Vertex {
-        position: [-0.5, -0.5, 0.0],
-        color: [0.0, 1.0, 0.0],
+        position: [-0.5, 0.25, 0.0],
+        color: [1.0, 1.0, 1.0],
     },
+    // Point C
     Vertex {
-        position: [0.5, -0.5, 0.0],
-        color: [0.0, 0.0, 1.0],
+        position: [-0.25, -0.5, 0.0],
+        color: [1.0, 1.0, 1.0],
+    },
+    // Point D
+    Vertex {
+        position: [0.25, -0.5, 0.0],
+        color: [1.0, 1.0, 1.0],
+    },
+    // Point E
+    Vertex {
+        position: [0.5, 0.25, 0.0],
+        color: [1.0, 1.0, 1.0],
     },
 ];
+
+// Indices(coming from the word index, like in an array) is basically an
+// approach, where we store unique values in the vertex buffer, which can
+// hold a lot of vertices and instead of repeating these complex values
+// that take up a lot of memory, we can just make an index buffer, where
+// we index or refrence these values instead of duplicating data
+const INDICES: &[u16] = &[0, 1, 4, 1, 2, 4, 2, 3, 4];
 
 pub struct State {
     surface: Surface,
@@ -34,7 +54,8 @@ pub struct State {
     pub size: PhysicalSize<u32>,
     render_pipeline: RenderPipeline,
     vertex_buffer: Buffer,
-    num_vertices: u32,
+    index_buffer: Buffer,
+    num_indices: u32,
 }
 
 impl State {
@@ -213,7 +234,12 @@ impl State {
             usage: BufferUsages::VERTEX,
         });
 
-        let num_vertices = VERTICES.len() as u32;
+        let index_buffer = device.create_buffer_init(&BufferInitDescriptor {
+            label: Some("Index Buffer"),
+            contents: bytemuck::cast_slice(INDICES),
+            usage: BufferUsages::INDEX,
+        });
+        let num_indices = INDICES.len() as u32;
 
         Self {
             surface,
@@ -223,7 +249,8 @@ impl State {
             size,
             render_pipeline,
             vertex_buffer,
-            num_vertices,
+            index_buffer,
+            num_indices,
         }
     }
 
@@ -269,9 +296,9 @@ impl State {
                 resolve_target: None,
                 ops: Operations {
                     load: LoadOp::Clear(Color {
-                        r: 0.1,
-                        g: 0.2,
-                        b: 0.3,
+                        r: 0.0,
+                        g: 0.0,
+                        b: 0.0,
                         a: 1.0,
                     }),
                     store: true,
@@ -282,7 +309,8 @@ impl State {
 
         render_pass.set_pipeline(&self.render_pipeline);
         render_pass.set_vertex_buffer(0, self.vertex_buffer.slice(..));
-        render_pass.draw(0..self.num_vertices, 0..1);
+        render_pass.set_index_buffer(self.index_buffer.slice(..), IndexFormat::Uint16);
+        render_pass.draw_indexed(0..self.num_indices, 0, 0..1);
         // The reason we drop the render_pass is because the command
         // encoder.begin_render_pass() borrows the encoder as &mut which
         // means that we can't call encoder.finish() until that borrow is given
