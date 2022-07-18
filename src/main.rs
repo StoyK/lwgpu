@@ -1,4 +1,5 @@
 pub mod state;
+pub mod texture;
 pub mod vertex;
 
 use state::State;
